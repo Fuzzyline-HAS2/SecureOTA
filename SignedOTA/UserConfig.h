@@ -10,9 +10,6 @@ const char *ssid = "SK_DA20_2.4G";
 const char *password = "GGA48@6587";
 
 // 2. 펌웨어 다운로드 주소
-// 펌웨어 파일(.bin)이 있는 인터넷 주소(URL)를 입력해주세요.
-// 주의: 반드시 'raw' 주소여야 합니다. (브라우저에서 주소를 쳤을 때 파일이 바로
-// 다운로드되어야 함)
 const char *firmware_url = "https://raw.githubusercontent.com/Fuzzyline-HAS2/"
                            "TTGO_update_test/main/update.bin";
 
@@ -20,8 +17,15 @@ const char *firmware_url = "https://raw.githubusercontent.com/Fuzzyline-HAS2/"
 const char *version_url = "https://raw.githubusercontent.com/Fuzzyline-HAS2/"
                           "TTGO_update_test/main/version.txt";
 
-// 3. 디버그 및 버전 정보
-#define CURRENT_FIRMWARE_VERSION 1
+// 서명 파일 URL (update.sig) - 32바이트 HMAC-SHA256 서명
+const char *signature_url = "https://raw.githubusercontent.com/Fuzzyline-HAS2/"
+                            "TTGO_update_test/main/update.sig";
+
+// 3. HMAC 서명 비밀키 (secrets.h에서 관리 — GitHub에 올라가지 않음)
+#include "secrets.h"
+
+// 4. 디버그 및 버전 정보
+#define CURRENT_FIRMWARE_VERSION 2
 
 // ==========================================
 #endif

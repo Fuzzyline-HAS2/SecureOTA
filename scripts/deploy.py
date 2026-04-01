@@ -17,7 +17,17 @@ CONFIG_FILE = os.path.join(BASE_DIR, "SignedOTA", "UserConfig.h")
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 SIGNED_OTA_BUILD = os.path.join(BASE_DIR, "SignedOTA", "build") # SignedOTA/build 추가
 OUTPUT_FILENAME = "update.bin"
+SIGNATURE_FILENAME = "update.sig"
 # =======================================
+
+# 비밀키는 secrets.py에서 관리 (GitHub에 올라가지 않음)
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from secrets import HMAC_SECRET
+except ImportError:
+    print("❌ 오류: scripts/secrets.py 파일이 없습니다.")
+    print("   secrets.py.example을 secrets.py로 복사한 뒤 비밀키를 설정하세요.")
+    sys.exit(1)
 
 def get_current_version():
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -128,7 +138,24 @@ def main():
         print(f"❌ 파일 복사 실패: {e}")
         return
 
-    # 5. Git 푸시
+    # 5. 펌웨어 서명
+    if HMAC_SECRET == "CHANGE_THIS_TO_YOUR_SECRET":
+        print("❌ 오류: deploy.py의 HMAC_SECRET을 설정해주세요.")
+        print("   UserConfig.h의 hmac_secret과 동일한 값으로 변경하세요.")
+        return
+
+    sign_script = os.path.join(BASE_DIR, "scripts", "sign_firmware.py")
+    sig_output = os.path.join(BASE_DIR, SIGNATURE_FILENAME)
+    result = subprocess.run(
+        [sys.executable, sign_script, OUTPUT_FILENAME, HMAC_SECRET, sig_output],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"❌ 서명 실패:\n{result.stderr}")
+        return
+    print(f"🔏 {result.stdout.strip()}")
+
+    # 6. Git 푸시
     git_push(new_ver)
     
     print("\n🎉 모든 작업이 완료되었습니다!")

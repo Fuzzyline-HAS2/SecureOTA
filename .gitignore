@@ -1,4 +1,6 @@
 private_key.pem
+SignedOTA/secrets.h
+scripts/secrets.py
 build/
 SignedOTA/build/
 __pycache__/
