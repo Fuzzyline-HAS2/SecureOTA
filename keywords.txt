@@ -1,0 +1,10 @@
+#######################################
+# Syntax Coloring Map — SecureOTA
+#######################################
+
+# Datatypes (KEYWORD1 — orange)
+SecureOTA	KEYWORD1
+
+# Methods and Functions (KEYWORD2 — brown)
+check	KEYWORD2
+setLogStream	KEYWORD2
