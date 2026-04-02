@@ -9,19 +9,21 @@ import glob
 sys.stdout.reconfigure(encoding='utf-8')
 
 # ============================================================
-# 경로 설정
-#   SCRIPT_DIR   : scripts/ 폴더 (이 파일의 위치)
-#   BASE_DIR     : 저장소 루트 (라이브러리 루트)
-#   SKETCH_FILE  : 버전 매크로가 있는 스케치 파일 경로
-#                  → 자신의 프로젝트 .ino 파일로 변경하세요
-#   VERSION_MACRO: 스케치 내 버전 매크로 이름 (#define XXX 숫자)
+# [사용법] 이 파일을 각 기기 프로젝트의 scripts/ 폴더에 복사한 뒤
+#          아래 두 변수만 프로젝트에 맞게 수정하세요.
+#
+# 경로 구조:
+#   SCRIPT_DIR : 이 파일이 있는 scripts/ 폴더
+#   BASE_DIR   : 저장소 루트 (scripts/ 의 상위)
+#                → update.bin · update.sig · version.txt 가 여기에 저장됨
+#   SKETCH_FILE: 버전 매크로(#define FIRMWARE_VER)가 있는 .ino 파일
 # ============================================================
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR      = os.path.dirname(SCRIPT_DIR)
 
-# ── 프로젝트에 맞게 변경 ────────────────────────────────────
-SKETCH_FILE   = os.path.join(BASE_DIR, "examples", "BasicUsage", "BasicUsage.ino")
-VERSION_MACRO = "FIRMWARE_VER"
+# ── 기기 프로젝트에 맞게 변경 ──────────────────────────────
+SKETCH_FILE   = os.path.join(BASE_DIR, "YourSketch.ino")   # ← 변경 필요
+VERSION_MACRO = "FIRMWARE_VER"                               # ← 스케치 내 버전 매크로 이름
 # ────────────────────────────────────────────────────────────
 
 OUTPUT_BIN    = os.path.join(BASE_DIR, "update.bin")
