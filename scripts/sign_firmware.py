@@ -1,8 +1,19 @@
+"""
+sign_firmware.py — HMAC-SHA256 펌웨어 서명 생성기
+
+사용법:
+    python sign_firmware.py <firmware.bin> <hmac_secret> <output.sig>
+
+출력:
+    32바이트 HMAC-SHA256 서명 파일 (update.sig)
+"""
+
 import hmac
 import hashlib
 import sys
 
-def sign_firmware(binary_path, secret, output_path):
+
+def sign_firmware(binary_path: str, secret: str, output_path: str) -> None:
     with open(binary_path, "rb") as f:
         firmware = f.read()
 
@@ -11,9 +22,9 @@ def sign_firmware(binary_path, secret, output_path):
     with open(output_path, "wb") as f:
         f.write(sig)
 
-    print(f"완료!")
-    print(f"펌웨어: {binary_path} ({len(firmware)} bytes)")
+    print(f"펌웨어: {binary_path} ({len(firmware):,} bytes)")
     print(f"서명:   {output_path} (32 bytes)")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
