@@ -40,26 +40,19 @@ const char* SIGNATURE_URL = "https://raw.githubusercontent.com/YOUR_USER/YOUR_RE
 // ============================================================
 SecureOTA ota(FIRMWARE_URL, VERSION_URL, SIGNATURE_URL, HMAC_SECRET, FIRMWARE_VER);
 
-// OTA 성공 후 서버에 전송할 콜백 함수
-// ESP.restart() 직전에 호출되므로 빠르게 처리해야 합니다 (2초 이내 권장)
+// OTA 성공 콜백 — 플래싱 완료 후 ESP.restart() 직전에 호출
+// 서버의 device_state 를 "setting" 으로 되돌려줌
 void onOtaSuccess() {
-  Serial.println("[OTA] 업데이트 완료 — 서버에 상태 전송 중...");
+  Serial.println("[OTA] 업데이트 완료 — 서버에 setting 전송");
+  // Firebase.setString(fbdo, "/device_state", "setting");
+}
 
-  // 사용하는 서버 통신 방식에 맞게 작성하세요.
-  // 예시 (Firebase):
-  //   Firebase.setString(fbdo, "/device_state", "setting");
-  //
-  // 예시 (MQTT):
-  //   mqttClient.publish("device/state", "setting");
-  //
-  // 예시 (HTTP POST):
-  //   HTTPClient http;
-  //   http.begin("http://서버주소/api/state");
-  //   http.addHeader("Content-Type", "application/json");
-  //   http.POST("{\"device_state\":\"setting\"}");
-  //   http.end();
-
-  Serial.println("[OTA] 서버 전송 완료");
+// OTA 스킵 콜백 — 이미 최신 버전일 때 호출
+// 재부팅 후 서버가 아직 device_state=github 를 들고 있을 때
+// setting 으로 되돌려주는 역할
+void onOtaSkip() {
+  Serial.println("[OTA] 최신 버전 확인 — 서버에 setting 전송");
+  // Firebase.setString(fbdo, "/device_state", "setting");
 }
 
 // ============================================================
@@ -95,8 +88,11 @@ void setup() {
   // TelnetStream.begin(23);
   // ota.setLogStream(TelnetStream);
 
-  // OTA 성공 콜백 등록
+  // OTA 성공 콜백 — 펌웨어 교체 완료 후 서버에 setting 전송
   ota.setOnSuccess(onOtaSuccess);
+
+  // OTA 스킵 콜백 — 이미 최신 버전일 때 서버에 setting 전송
+  ota.setOnSkip(onOtaSkip);
 }
 
 void loop() {

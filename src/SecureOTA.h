@@ -48,16 +48,24 @@ public:
   void setLogStream(Stream& stream);
 
   // --------------------------------------------------------
-  // OTA 성공 콜백 설정
-  //   OTA 플래싱 완료 후 ESP.restart() 직전에 호출됨
-  //   서버에 상태 전송(예: device_state = "setting") 등에 활용
-  //
-  //   사용 예:
-  //     ota.setOnSuccess([]() {
-  //       Firebase.setString(fbdo, "/device_state", "setting");
-  //     });
+  // OTA 성공 콜백
+  //   플래싱 완료 후 ESP.restart() 직전에 호출됨
+  //   사용 예: ota.setOnSuccess([]() {
+  //              Firebase.setString(fbdo, "/device_state", "setting");
+  //            });
   // --------------------------------------------------------
   void setOnSuccess(std::function<void()> callback);
+
+  // --------------------------------------------------------
+  // OTA 스킵 콜백
+  //   이미 최신 버전이라 업데이트 불필요할 때 호출됨
+  //   서버가 아직 device_state=github 를 들고 있을 때
+  //   setting 으로 되돌려주는 용도
+  //   사용 예: ota.setOnSkip([]() {
+  //              Firebase.setString(fbdo, "/device_state", "setting");
+  //            });
+  // --------------------------------------------------------
+  void setOnSkip(std::function<void()> callback);
 
   // --------------------------------------------------------
   // OTA 확인 및 실행
@@ -76,6 +84,7 @@ private:
   int         _current_version;
   Stream*     _log_stream;                // 추가 출력 스트림 (기본값: nullptr)
   std::function<void()> _on_success;      // OTA 성공 콜백 (기본값: nullptr)
+  std::function<void()> _on_skip;         // OTA 스킵 콜백 (기본값: nullptr)
 
   // 내부 로그 출력 헬퍼
   void _print(const char* msg);

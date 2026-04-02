@@ -32,7 +32,8 @@ SecureOTA::SecureOTA(const char* firmware_url,
     _hmac_secret(hmac_secret),
     _current_version(current_version),
     _log_stream(nullptr),
-    _on_success(nullptr)
+    _on_success(nullptr),
+    _on_skip(nullptr)
 {}
 
 void SecureOTA::setLogStream(Stream& stream) {
@@ -41,6 +42,10 @@ void SecureOTA::setLogStream(Stream& stream) {
 
 void SecureOTA::setOnSuccess(std::function<void()> callback) {
   _on_success = callback;
+}
+
+void SecureOTA::setOnSkip(std::function<void()> callback) {
+  _on_skip = callback;
 }
 
 // ============================================================
@@ -341,6 +346,10 @@ void SecureOTA::check() {
   }
   if (serverVersion == _current_version) {
     _printf("[OTA] 이미 최신 버전 (v%d) — OTA 스킵\n", _current_version);
+    if (_on_skip) {
+      _println("[OTA] 스킵 콜백 실행 중...");
+      _on_skip();
+    }
     return;
   }
 
