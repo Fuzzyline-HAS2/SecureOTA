@@ -140,61 +140,27 @@ void DataChange(String changed_var) {
 
 ---
 
-## 각 기기 프로젝트에 적용하기
+## deploy.py 사용자 설정
 
-SecureOTA는 **공유 라이브러리**입니다. 기기별 펌웨어(update.bin)와 배포 스크립트는 **각 기기의 저장소**에서 관리합니다.
+`scripts/deploy.py` 상단의 두 변수를 자신의 프로젝트에 맞게 변경합니다:
 
-```
-SecureOTA/          ← 이 저장소 (라이브러리 코드만, 기기별 파일 없음)
-  src/
-  examples/
-  scripts/          ← 템플릿 (각 기기 저장소에 복사해서 사용)
-
-revival_1/          ← 기기 저장소 (별도 GitHub repo)
-  revival_1.ino
-  secrets.h         ← gitignore 대상
-  scripts/
-    deploy.py       ← SecureOTA/scripts/deploy.py 복사 후 수정
-    sign_firmware.py
-    secrets.py      ← gitignore 대상
-  update.bin        ← deploy.py 가 자동 생성 · 푸시
-  update.sig
-  version.txt
-
-revival_2/          ← 기기 저장소 (별도 GitHub repo)
-  ...
-```
-
-### 기기 프로젝트 설정 순서
-
-**1. SecureOTA 라이브러리 설치**
-```bash
-cd "C:\Users\ok\Documents\Arduino\libraries"
-git clone https://github.com/Fuzzyline-HAS2/SecureOTA.git
-```
-> ZIP 설치 대신 git clone 을 권장합니다. `git pull` 한 번으로 라이브러리 업데이트 가능.
-
-**2. scripts/ 복사**
-```bash
-# revival_1 저장소에 scripts 폴더 복사
-cp -r SecureOTA/scripts/ revival_1/scripts/
-```
-
-**3. deploy.py 상단 두 줄 수정**
 ```python
-SKETCH_FILE   = os.path.join(BASE_DIR, "revival_1.ino")  # 자신의 .ino 파일명
+# ── 프로젝트에 맞게 변경 ────────────────────────────────────
+SKETCH_FILE   = os.path.join(BASE_DIR, "examples", "BasicUsage", "BasicUsage.ino")
 VERSION_MACRO = "FIRMWARE_VER"
+# ────────────────────────────────────────────────────────────
 ```
 
-**4. 스케치에 버전 매크로 추가**
-```cpp
-#define FIRMWARE_VER 1   // deploy.py 가 자동으로 증가
+**예시 — HAS2 프로젝트에 적용 시:**
+```python
+SKETCH_FILE   = "C:/Users/ok/HAS2/HAS2.ino"   # 자신의 스케치 파일 경로
+VERSION_MACRO = "FIRMWARE_VER"                  # 스케치 내 버전 매크로 이름
 ```
 
 deploy.py 가 자동으로 처리하는 것:
 - `#define FIRMWARE_VER X` 값 증가 (스케치 파일 수정)
-- `update.bin` HMAC 서명 → `update.sig` 생성
-- `version.txt`, `update.bin`, `update.sig`, 스케치 → **기기 저장소**에 GitHub 푸시
+- `update.bin` 서명 → `update.sig` 생성
+- `version.txt`, `update.bin`, `update.sig`, 스케치 파일 → GitHub 푸시
 
 ---
 
@@ -240,36 +206,29 @@ check() 호출
 
 ---
 
-## 저장소 구조
+## 프로젝트 구조 (라이브러리)
 
 ```
-SecureOTA/                        ← 라이브러리 저장소 (공유, 기기별 파일 없음)
+SecureOTA/                        ← 라이브러리 루트 = GitHub 저장소
 ├── src/
 │   ├── SecureOTA.h               # 클래스 선언
 │   └── SecureOTA.cpp             # OTA 로직 구현
 ├── examples/
 │   └── BasicUsage/
-│       ├── BasicUsage.ino        # 사용 예제
+│       ├── BasicUsage.ino        # 사용 예제 (FIRMWARE_VER 매크로 포함)
 │       └── secrets.h.example     # 비밀키 템플릿
-├── scripts/                      # 템플릿 (각 기기 저장소에 복사해서 사용)
-│   ├── deploy.py                 # 배포 자동화 (SKETCH_FILE 수정 필요)
-│   ├── sign_firmware.py          # HMAC-SHA256 서명 생성기
-│   └── secrets.py.example        # Python 비밀키 템플릿
-├── library.properties
-├── keywords.txt
-└── README.md
-
-revival_1/                        ← 기기 저장소 (별도 GitHub repo, 기기마다 하나씩)
-├── revival_1.ino                 # 기기 메인 코드
-├── secrets.h                     # HMAC 비밀키 (gitignore)
 ├── scripts/
-│   ├── deploy.py                 # SecureOTA/scripts 에서 복사 후 SKETCH_FILE 수정
-│   ├── sign_firmware.py
+│   ├── deploy.py                 # 배포 자동화 (SKETCH_FILE 변수 수정 필요)
+│   ├── sign_firmware.py          # HMAC-SHA256 서명 생성기
 │   ├── secrets.py                # Python 비밀키 (gitignore)
-│   └── secrets.py.example
-├── update.bin                    # deploy.py 자동 생성 — 기기가 여기서 다운로드
-├── update.sig                    # HMAC 서명
-└── version.txt                   # 버전 번호
+│   └── secrets.py.example        # Python 비밀키 템플릿
+├── library.properties            # Arduino 라이브러리 메타데이터
+├── keywords.txt                  # 아두이노 IDE 문법 강조
+├── .gitignore
+├── README.md
+├── update.bin                    # 최신 펌웨어 (GitHub 에 올라감)
+├── update.sig                    # HMAC 서명 (GitHub 에 올라감)
+└── version.txt                   # 서버 버전 (deploy.py 자동 관리)
 ```
 
 ---
