@@ -170,12 +170,38 @@ deploy.py 가 자동으로 처리하는 것:
 // 생성자
 SecureOTA ota(firmware_url, version_url, signature_url, hmac_secret, current_version);
 
-// 추가 로그 스트림 (선택) — TelnetStream 등
+// 추가 로그 스트림 (선택) — TelnetStream 등, Serial 은 항상 출력
 ota.setLogStream(TelnetStream);
+
+// OTA 성공 콜백 (선택) — 플래싱 완료 후 ESP.restart() 직전에 호출
+// 서버에 상태 전송 등에 활용 (2초 이내 처리 권장)
+ota.setOnSuccess([]() {
+  Firebase.setString(fbdo, "/device_state", "setting");
+});
 
 // OTA 확인 및 실행
 // WiFi 연결 확인 → 서버 버전 확인 → 버전 불일치 시 서명 검증 후 업데이트
 ota.check();
+```
+
+### OTA 실행 흐름
+
+```
+check() 호출
+  │
+  ├─ WiFi 미연결 → 즉시 return (정상 loop 계속)
+  │
+  ├─ 버전 동일 → 즉시 return (정상 loop 계속)
+  │    예) 서버 v2 / 현재 v2 → "[OTA] 이미 최신 버전 — OTA 스킵"
+  │
+  └─ 버전 불일치 → execOTA() 실행
+       │
+       ├─ 서명 검증 실패 → Update.abort(), return (정상 loop 계속)
+       │
+       └─ 서명 검증 성공 → Update.end(true) 플래싱 커밋
+            → setOnSuccess 콜백 실행 (서버 상태 전송 등)
+            → 3초 대기
+            → ESP.restart()
 ```
 
 ---

@@ -40,6 +40,28 @@ const char* SIGNATURE_URL = "https://raw.githubusercontent.com/YOUR_USER/YOUR_RE
 // ============================================================
 SecureOTA ota(FIRMWARE_URL, VERSION_URL, SIGNATURE_URL, HMAC_SECRET, FIRMWARE_VER);
 
+// OTA 성공 후 서버에 전송할 콜백 함수
+// ESP.restart() 직전에 호출되므로 빠르게 처리해야 합니다 (2초 이내 권장)
+void onOtaSuccess() {
+  Serial.println("[OTA] 업데이트 완료 — 서버에 상태 전송 중...");
+
+  // 사용하는 서버 통신 방식에 맞게 작성하세요.
+  // 예시 (Firebase):
+  //   Firebase.setString(fbdo, "/device_state", "setting");
+  //
+  // 예시 (MQTT):
+  //   mqttClient.publish("device/state", "setting");
+  //
+  // 예시 (HTTP POST):
+  //   HTTPClient http;
+  //   http.begin("http://서버주소/api/state");
+  //   http.addHeader("Content-Type", "application/json");
+  //   http.POST("{\"device_state\":\"setting\"}");
+  //   http.end();
+
+  Serial.println("[OTA] 서버 전송 완료");
+}
+
 // ============================================================
 // setup / loop
 // ============================================================
@@ -72,6 +94,9 @@ void setup() {
   // TelnetStream 사용 시 아래 주석 해제:
   // TelnetStream.begin(23);
   // ota.setLogStream(TelnetStream);
+
+  // OTA 성공 콜백 등록
+  ota.setOnSuccess(onOtaSuccess);
 }
 
 void loop() {

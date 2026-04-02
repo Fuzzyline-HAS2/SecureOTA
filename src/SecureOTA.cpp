@@ -31,11 +31,16 @@ SecureOTA::SecureOTA(const char* firmware_url,
     _signature_url(signature_url),
     _hmac_secret(hmac_secret),
     _current_version(current_version),
-    _log_stream(nullptr)
+    _log_stream(nullptr),
+    _on_success(nullptr)
 {}
 
 void SecureOTA::setLogStream(Stream& stream) {
   _log_stream = &stream;
+}
+
+void SecureOTA::setOnSuccess(std::function<void()> callback) {
+  _on_success = callback;
 }
 
 // ============================================================
@@ -301,9 +306,18 @@ void SecureOTA::_execOTA() {
     return;
   }
 
-  _println("[OTA] OTA 완료! 3초 후 재부팅...");
+  _println("[OTA] OTA 완료!");
   http.end();
   client.stop();
+
+  // 성공 콜백 실행 (서버 상태 전송 등)
+  if (_on_success) {
+    _println("[OTA] 성공 콜백 실행 중...");
+    _on_success();
+    delay(2000);  // 콜백(네트워크 전송 등) 완료 대기
+  }
+
+  _println("[OTA] 3초 후 재부팅...");
   delay(3000);
   ESP.restart();
 }
