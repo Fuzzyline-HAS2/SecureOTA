@@ -140,27 +140,68 @@ void DataChange(String changed_var) {
 
 ---
 
-## deploy.py 사용자 설정
+## 각 기기 저장소에 적용하기
 
-`scripts/deploy.py` 상단의 두 변수를 자신의 프로젝트에 맞게 변경합니다:
+SecureOTA는 **공유 라이브러리**입니다. 기기별 펌웨어와 배포 스크립트는 **각 기기의 저장소**에서 관리합니다.
 
-```python
-# ── 프로젝트에 맞게 변경 ────────────────────────────────────
-SKETCH_FILE   = os.path.join(BASE_DIR, "examples", "BasicUsage", "BasicUsage.ino")
-VERSION_MACRO = "FIRMWARE_VER"
-# ────────────────────────────────────────────────────────────
+### 저장소 구조
+
+```
+[공유] SecureOTA 저장소       ← 이 저장소. OTA 코드만. 기기별 파일 없음.
+  src/SecureOTA.h/.cpp
+
+[기기A] 생명장치 저장소        [기기B] 덕트 저장소
+  lifedevice.ino                duct.ino
+  secrets.h                     secrets.h
+  scripts/deploy.py             scripts/deploy.py
+  update.bin  ← 생명장치 전용   update.bin  ← 덕트 전용
+  update.sig                    update.sig
+  version.txt                   version.txt
+
+[기기C] 제단 저장소            [기기D] IoT glove 저장소
+  altar.ino                     glove.ino
+  ...                           ...
 ```
 
-**예시 — HAS2 프로젝트에 적용 시:**
+### 기기 저장소 설정 순서
+
+**1. SecureOTA 라이브러리 설치 (한 번만)**
+```bash
+cd "C:\Users\ok\Documents\Arduino\libraries"
+git clone https://github.com/Fuzzyline-HAS2/SecureOTA.git
+```
+> 이후 업데이트: `git pull` 한 줄로 8개 기기 모두에 반영됨
+
+**2. 기기 저장소에 scripts/ 복사**
+```bash
+cp -r SecureOTA/scripts/  생명장치저장소/scripts/
+```
+
+**3. deploy.py 수정 (SKETCH_FILE 한 줄만)**
 ```python
-SKETCH_FILE   = "C:/Users/ok/HAS2/HAS2.ino"   # 자신의 스케치 파일 경로
-VERSION_MACRO = "FIRMWARE_VER"                  # 스케치 내 버전 매크로 이름
+SKETCH_FILE = os.path.join(BASE_DIR, "lifedevice.ino")  # 기기별 .ino 이름
+```
+
+**4. 스케치에 SecureOTA 연결**
+```cpp
+#include <SecureOTA.h>
+#include "secrets.h"
+
+#define FIRMWARE_VER 1
+
+// 이 기기 저장소의 GitHub Raw URL
+SecureOTA ota(
+  "https://raw.githubusercontent.com/내아이디/생명장치/main/update.bin",
+  "https://raw.githubusercontent.com/내아이디/생명장치/main/version.txt",
+  "https://raw.githubusercontent.com/내아이디/생명장치/main/update.sig",
+  HMAC_SECRET, FIRMWARE_VER
+);
 ```
 
 deploy.py 가 자동으로 처리하는 것:
 - `#define FIRMWARE_VER X` 값 증가 (스케치 파일 수정)
-- `update.bin` 서명 → `update.sig` 생성
-- `version.txt`, `update.bin`, `update.sig`, 스케치 파일 → GitHub 푸시
+- `update.bin` HMAC 서명 → `update.sig` 생성
+- `version.txt`, `update.bin`, `update.sig` → **이 기기 저장소**에 GitHub 푸시
 
 ---
 
@@ -206,29 +247,24 @@ check() 호출
 
 ---
 
-## 프로젝트 구조 (라이브러리)
+## 라이브러리 저장소 구조
 
 ```
-SecureOTA/                        ← 라이브러리 루트 = GitHub 저장소
+SecureOTA/                        ← 라이브러리 저장소 (공유, 기기별 파일 없음)
 ├── src/
 │   ├── SecureOTA.h               # 클래스 선언
 │   └── SecureOTA.cpp             # OTA 로직 구현
 ├── examples/
 │   └── BasicUsage/
-│       ├── BasicUsage.ino        # 사용 예제 (FIRMWARE_VER 매크로 포함)
+│       ├── BasicUsage.ino        # 사용 예제
 │       └── secrets.h.example     # 비밀키 템플릿
-├── scripts/
-│   ├── deploy.py                 # 배포 자동화 (SKETCH_FILE 변수 수정 필요)
+├── scripts/                      # 각 기기 저장소에 복사해서 사용
+│   ├── deploy.py                 # 배포 자동화 (SKETCH_FILE 수정 필요)
 │   ├── sign_firmware.py          # HMAC-SHA256 서명 생성기
-│   ├── secrets.py                # Python 비밀키 (gitignore)
 │   └── secrets.py.example        # Python 비밀키 템플릿
-├── library.properties            # Arduino 라이브러리 메타데이터
-├── keywords.txt                  # 아두이노 IDE 문법 강조
-├── .gitignore
-├── README.md
-├── update.bin                    # 최신 펌웨어 (GitHub 에 올라감)
-├── update.sig                    # HMAC 서명 (GitHub 에 올라감)
-└── version.txt                   # 서버 버전 (deploy.py 자동 관리)
+├── library.properties
+├── keywords.txt
+└── README.md
 ```
 
 ---
@@ -251,9 +287,14 @@ SecureOTA/                        ← 라이브러리 루트 = GitHub 저장소
 → `Ctrl+U`: 컴파일 + USB 업로드 (기기에 직접 플래싱)  
 → `Ctrl+Alt+S`: 컴파일 + `.bin` 파일만 로컬 저장 (USB 불필요, OTA 배포 시 사용)
 
-**Q. update.bin 이 .gitignore 에 없는 게 맞나요?**  
+**Q. update.bin 이 기기 저장소 .gitignore 에 없는 게 맞나요?**  
 → 맞습니다. 기기가 GitHub Raw URL 로 다운로드하기 위해 반드시 올라가야 합니다.  
 → 보안은 파일 공개 여부가 아닌 HMAC 서명으로 보장됩니다.
 
-**Q. 기기가 여러 대인데 비밀키는 몇 개 필요해요?**  
-→ 1개입니다. 모든 기기에 같은 비밀키를 내장하고, 서명도 같은 키 하나로 합니다.
+**Q. 기기마다 비밀키가 달라야 하나요?**  
+→ 아니요. 비밀키 1개로 모든 기기를 관리해도 됩니다.  
+→ 기기별로 다른 비밀키를 쓰면 보안은 높아지지만, 비밀키 관리가 복잡해집니다.
+
+**Q. 기기가 8개면 저장소도 8개 따로 만들어야 하나요?**  
+→ 기기마다 코드와 펌웨어(update.bin)가 다르다면 저장소도 각자 따로 관리하는 게 맞습니다.  
+→ SecureOTA 라이브러리는 한 번 git clone 해두면 8개 기기 모두에서 공유됩니다.
