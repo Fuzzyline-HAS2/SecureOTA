@@ -29,6 +29,13 @@ OUTPUT_BIN    = os.path.join(BASE_DIR, "update.bin")
 OUTPUT_SIG    = os.path.join(BASE_DIR, "update.sig")
 VERSION_TXT   = os.path.join(BASE_DIR, "version.txt")
 
+# ── 파티션 관련 ──────────────────────────────────────────────
+PARTITION_MACRO    = "PARTITION_VER"
+OUTPUT_PART_BIN    = os.path.join(BASE_DIR, "partitions.bin")
+OUTPUT_PART_SIG    = os.path.join(BASE_DIR, "partitions.sig")
+PARTITION_VER_TXT  = os.path.join(BASE_DIR, "partition_version.txt")
+# ────────────────────────────────────────────────────────────
+
 # ============================================================
 # 비밀키: scripts/secrets.py 에서 관리 (GitHub 비공개)
 # ============================================================
@@ -66,6 +73,55 @@ def increment_version(current_ver):
     return new_ver
 
 # ============================================================
+# 파티션 버전 관련 함수
+# ============================================================
+def get_current_partition_version():
+    with open(SKETCH_FILE, "r", encoding="utf-8") as f:
+        content = f.read()
+    pattern = rf'#define\s+{PARTITION_MACRO}\s+(\d+)'
+    match = re.search(pattern, content)
+    if match:
+        return int(match.group(1))
+    return None
+
+def increment_partition_version(current_ver):
+    new_ver = current_ver + 1
+    with open(SKETCH_FILE, "r", encoding="utf-8") as f:
+        content = f.read()
+    new_content = re.sub(
+        rf'#define\s+{PARTITION_MACRO}\s+\d+',
+        f'#define {PARTITION_MACRO} {new_ver}',
+        content
+    )
+    with open(SKETCH_FILE, "w", encoding="utf-8") as f:
+        f.write(new_content)
+    return new_ver
+
+# ============================================================
+# 빌드된 partitions.bin 탐색
+#   Arduino IDE 2.x 빌드 시 생성되는 *partitions*.bin 파일을 찾습니다.
+# ============================================================
+def find_partitions_bin():
+    sketch_dir = os.path.dirname(SKETCH_FILE)
+
+    search_patterns = [
+        os.path.join(sketch_dir, "build", "**", "*partitions*.bin"),
+        os.path.join(BASE_DIR, "build", "**", "*partitions*.bin"),
+    ]
+
+    candidates = []
+    for pattern in search_patterns:
+        candidates.extend(glob.glob(pattern, recursive=True))
+
+    # 최종 배포용 파일(output_part_bin)은 제외
+    candidates = [f for f in candidates if os.path.abspath(f) != os.path.abspath(OUTPUT_PART_BIN)]
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=os.path.getmtime)
+
+# ============================================================
 # 빌드된 .bin 파일 탐색
 #   Arduino IDE 2.x : Ctrl+Alt+S → 스케치 폴더/build/ 아래에 생성
 #   Arduino IDE 1.x : Ctrl+Alt+S → 스케치 폴더 바로 아래에 생성
@@ -99,7 +155,7 @@ def find_newest_bin():
 # ============================================================
 # GitHub 푸시
 # ============================================================
-def git_push(version):
+def git_push(version, partition_version=None):
     print("\n☁️ GitHub 에 업로드 중...")
     try:
         # version.txt 갱신
@@ -114,9 +170,19 @@ def git_push(version):
             "version.txt",
             os.path.relpath(SKETCH_FILE, BASE_DIR).replace("\\", "/"),
         ]
+
+        commit_msg = f"Firmware Update v{version}"
+
+        if partition_version is not None:
+            with open(PARTITION_VER_TXT, "w", encoding="utf-8") as f:
+                f.write(str(partition_version))
+            print(f"📝 partition_version.txt → v{partition_version}")
+            files_to_add += ["partitions.bin", "partitions.sig", "partition_version.txt"]
+            commit_msg += f" + Partition v{partition_version}"
+
         subprocess.run(["git", "-C", BASE_DIR, "add"] + files_to_add, check=True)
         subprocess.run(
-            ["git", "-C", BASE_DIR, "commit", "-m", f"Firmware Update v{version}"],
+            ["git", "-C", BASE_DIR, "commit", "-m", commit_msg],
             check=True
         )
         subprocess.run(["git", "-C", BASE_DIR, "push"], check=True)
@@ -185,10 +251,55 @@ def main():
         return
     print("🔏 서명 완료 → update.sig (32 bytes)")
 
-    # 7. GitHub 푸시
-    git_push(new_ver)
+    # 7. 파티션 스키마 업데이트 여부 확인
+    new_partition_ver = None
+    print("\n🗂️ 파티션 스키마도 업데이트하시겠습니까? (y/N): ", end="", flush=True)
+    answer = input().strip().lower()
 
-    print(f"\n🎉 배포 완료! v{new_ver} 이(가) GitHub 에 업로드되었습니다.")
+    if answer == "y":
+        # PARTITION_VER 매크로 확인
+        cur_partition_ver = get_current_partition_version()
+        if cur_partition_ver is None:
+            print(f"❌ {SKETCH_FILE} 에서 '#define {PARTITION_MACRO}' 를 찾을 수 없습니다.")
+            print(f"   .ino 파일에 '#define {PARTITION_MACRO} 1' 을 추가한 뒤 다시 시도하세요.")
+        else:
+            # partitions.bin 탐색
+            part_bin_file = find_partitions_bin()
+            if not part_bin_file:
+                print("❌ partitions.bin 을 찾을 수 없습니다.")
+                print("   아두이노 IDE 에서 Ctrl+Alt+S 로 바이너리를 내보낸 뒤 다시 시도하세요.")
+            else:
+                print(f"   발견: {os.path.relpath(part_bin_file, BASE_DIR)}")
+
+                # partitions.bin 복사
+                try:
+                    shutil.copy2(part_bin_file, OUTPUT_PART_BIN)
+                    print("📦 → partitions.bin 복사 완료")
+                except Exception as e:
+                    print(f"❌ 파일 복사 실패: {e}")
+                    part_bin_file = None
+
+                if part_bin_file:
+                    # HMAC-SHA256 서명 생성
+                    sign_script = os.path.join(SCRIPT_DIR, "sign_firmware.py")
+                    result = subprocess.run(
+                        [sys.executable, sign_script, OUTPUT_PART_BIN, HMAC_SECRET, OUTPUT_PART_SIG],
+                        capture_output=True, text=True
+                    )
+                    if result.returncode != 0:
+                        print(f"❌ 서명 실패:\n{result.stderr}")
+                    else:
+                        print("🔏 서명 완료 → partitions.sig (32 bytes)")
+                        new_partition_ver = increment_partition_version(cur_partition_ver)
+                        print(f"🔼 파티션 버전: v{cur_partition_ver} → v{new_partition_ver}")
+
+    # 8. GitHub 푸시
+    git_push(new_ver, new_partition_ver)
+
+    print(f"\n🎉 배포 완료! 펌웨어 v{new_ver}", end="")
+    if new_partition_ver is not None:
+        print(f" + 파티션 v{new_partition_ver}", end="")
+    print(" 이(가) GitHub 에 업로드되었습니다.")
     print("   서버에서 device_state = \"github\" 를 전송하면 기기가 업데이트됩니다.")
 
 if __name__ == "__main__":

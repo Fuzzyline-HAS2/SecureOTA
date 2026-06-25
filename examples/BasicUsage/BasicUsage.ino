@@ -28,12 +28,20 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
 // 2. GitHub Raw URL — 자신의 <유저명>/<저장소명>으로 변경
 //    형식: https://raw.githubusercontent.com/<유저명>/<저장소>/main/<파일>
-const char* FIRMWARE_URL  = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/update.bin";
-const char* VERSION_URL   = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/version.txt";
-const char* SIGNATURE_URL = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/update.sig";
+const char* FIRMWARE_URL       = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/update.bin";
+const char* VERSION_URL        = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/version.txt";
+const char* SIGNATURE_URL      = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/update.sig";
+
+// 파티션 OTA URL (선택 — setPartitionUpdate() 사용 시)
+const char* PARTITION_URL      = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/partitions.bin";
+const char* PARTITION_SIG_URL  = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/partitions.sig";
+const char* PARTITION_VER_URL  = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/partition_version.txt";
 
 // 3. 현재 펌웨어 버전 — deploy.py 가 자동으로 증가시킵니다
-#define FIRMWARE_VER 1
+#define FIRMWARE_VER   1
+
+// 4. 현재 파티션 버전 — deploy.py 가 파티션 변경 시 자동으로 증가시킵니다 (선택)
+#define PARTITION_VER  1
 
 // ============================================================
 // SecureOTA 인스턴스 생성
@@ -93,6 +101,9 @@ void setup() {
 
   // OTA 스킵 콜백 — 이미 최신 버전일 때 서버에 setting 전송
   ota.setOnSkip(onOtaSkip);
+
+  // 파티션 OTA 설정 (선택) — 파티션 스키마도 함께 업데이트하려면 아래 주석 해제
+  // ota.setPartitionUpdate(PARTITION_URL, PARTITION_SIG_URL, PARTITION_VER_URL, PARTITION_VER);
 }
 
 void loop() {

@@ -68,6 +68,7 @@ public:
   void setOnSkip(std::function<void()> callback);
 
   // --------------------------------------------------------
+  // --------------------------------------------------------
   // OTA 확인 및 실행
   //   - WiFi 연결 상태 확인
   //   - GitHub 서버 버전 확인
@@ -75,6 +76,22 @@ public:
   //   device_state == "github" 수신 시 DataChange() 에서 호출
   // --------------------------------------------------------
   void check();
+
+  // --------------------------------------------------------
+  // 파티션 스키마 OTA 설정 (선택)
+  //   partition_url         : GitHub Raw URL (partitions.bin)
+  //   partition_sig_url     : GitHub Raw URL (partitions.sig)
+  //   partition_version_url : GitHub Raw URL (partition_version.txt)
+  //   current_partition_version : 현재 파티션 버전 (#define PARTITION_VER)
+  //
+  //   호출 시 check() 에서 파티션 버전도 함께 확인하며,
+  //   불일치 시 파티션 테이블을 플래싱한 뒤 재부팅합니다.
+  //   재부팅 후 check() 가 다시 호출되면 펌웨어 OTA 를 진행합니다.
+  // --------------------------------------------------------
+  void setPartitionUpdate(const char* partition_url,
+                          const char* partition_sig_url,
+                          const char* partition_version_url,
+                          int current_partition_version);
 
 private:
   const char* _firmware_url;
@@ -86,16 +103,26 @@ private:
   std::function<void()> _on_success;      // OTA 성공 콜백 (기본값: nullptr)
   std::function<void()> _on_skip;         // OTA 스킵 콜백 (기본값: nullptr)
 
+  const char* _partition_url;             // partitions.bin URL
+  const char* _partition_sig_url;         // partitions.sig URL
+  const char* _partition_version_url;     // partition_version.txt URL
+  int         _current_partition_version; // 현재 파티션 버전
+  bool        _partition_update_enabled;  // setPartitionUpdate() 호출 여부
+
   // 내부 로그 출력 헬퍼
   void _print(const char* msg);
   void _println(const char* msg);
   void _printf(const char* fmt, ...);
 
   // OTA 내부 로직
-  bool _downloadSignature(uint8_t sig[32]);
+  bool _downloadSignature(uint8_t sig[32], const char* url);
   bool _verifySignature(const uint8_t computed[32], const uint8_t downloaded[32]);
   int  _checkServerVersion();
   void _execOTA();
+
+  // 파티션 OTA 내부 로직
+  int  _checkServerPartitionVersion();
+  bool _execPartitionOTA();
 };
 
 #endif // SECURE_OTA_H
