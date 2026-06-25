@@ -20,10 +20,14 @@ sys.stdout.reconfigure(encoding='utf-8')
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR      = os.path.dirname(SCRIPT_DIR)
 
-# ── 기기 저장소에 맞게 변경 ─────────────────────────────────
-SKETCH_FILE   = os.path.join(BASE_DIR, "YourSketch.ino")  # ← 변경 필요
+# 스케치 파일 자동 감지 (Arduino 규칙: 폴더명 == 스케치명)
+_dir_name   = os.path.basename(BASE_DIR)
+SKETCH_FILE = os.path.join(BASE_DIR, _dir_name + ".ino")
+if not os.path.exists(SKETCH_FILE):
+    _ino_files  = [f for f in os.listdir(BASE_DIR) if f.endswith(".ino")]
+    SKETCH_FILE = os.path.join(BASE_DIR, _ino_files[0]) if _ino_files else None
+
 VERSION_MACRO = "FIRMWARE_VER"
-# ────────────────────────────────────────────────────────────
 
 OUTPUT_BIN    = os.path.join(BASE_DIR, "update.bin")
 OUTPUT_SIG    = os.path.join(BASE_DIR, "update.sig")
