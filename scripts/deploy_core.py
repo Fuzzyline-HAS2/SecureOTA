@@ -116,10 +116,17 @@ def _git_push(base_dir, sketch_file, version, partition_version=None):
 
 # ============================================================
 # GitHub Releases 기반 배포 (secrets.py 에 GITHUB_TOKEN 이 있을 때만)
-#   — raw 파일을 main 브랜치에 커밋하는 대신, 태그별 Release 에
-#     바이너리를 asset 으로 올린다. 기기는 항상
-#     .../releases/latest/download/<file> 을 바라보므로
+#   — raw 파일을 main 브랜치에 커밋하는 대신, 기기(폴더)별 고정 태그
+#     Release 에 바이너리를 asset 으로 올린다. 기기는 항상
+#     .../releases/download/<고정 태그>/<file> 을 바라보므로
 #     브랜치 전략(main 외 브랜치 사용)과 OTA 배포가 분리된다.
+#
+#   태그를 "latest"로 하지 않는 이유: 한 저장소에 여러 기기 종류(폴더)가
+#   들어가면 "latest"는 저장소 전체에서 하나뿐이라, 다른 기기를 배포하는
+#   순간 이 기기가 그 기기의 바이너리를 받아버린다. 그래서 태그를 기기
+#   폴더명 그대로(예: HAS1_itembox) 고정 채널로 쓰고, 배포마다 그 태그의
+#   Release를 계속 덮어쓴다(재시도 시 태그 충돌을 재사용하는 로직을
+#   그대로 상시 메커니즘으로 씀).
 # ============================================================
 
 def _get_remote_repo(base_dir):
@@ -180,7 +187,7 @@ def _publish_release(base_dir, version, partition_version, github_token):
     print("\n☁️ GitHub Release 로 업로드 중...")
     owner, repo = _get_remote_repo(base_dir)
     branch = _get_current_branch(base_dir)
-    tag = f"v{version}"
+    tag = os.path.basename(base_dir)
 
     with open(os.path.join(base_dir, "version.txt"), "w", encoding="utf-8") as f:
         f.write(str(version))
