@@ -86,13 +86,17 @@ def cmd_publish(args):
             raise SystemExit(f"파티션 서명 실패:\n{err}")
         print("서명 완료 -> partitions.sig", file=sys.stderr)
 
-    if not core._publish_release(base_dir, version, partition_version, github_token):
-        raise SystemExit("Release 업로드 실패")
-
+    # 버전 커밋 push를 Release 업로드보다 먼저 한다 — 여기서 실패하면 Release가
+    # 아예 안 만들어지므로 다음 재시도 때 같은 태그로 충돌할 일이 없다.
+    # (반대로 Release 업로드가 나중에 실패해도 _publish_release는 태그 충돌 시
+    #  기존 Release에 이어서 업로드하도록 재시도-안전하게 되어 있음)
     sketch_file = core._find_sketch_file(base_dir)
     if not sketch_file:
         raise SystemExit(f"오류: {base_dir} 에서 .ino 파일을 찾을 수 없습니다.")
     core._commit_and_push_sketch(base_dir, sketch_file, version, partition_version)
+
+    if not core._publish_release(base_dir, version, partition_version, github_token):
+        raise SystemExit("Release 업로드 실패")
 
 
 def main():

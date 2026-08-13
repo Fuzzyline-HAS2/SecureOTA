@@ -207,11 +207,36 @@ def _publish_release(base_dir, version, partition_version, github_token):
             }).encode("utf-8"),
         )
     except urllib.error.HTTPError as e:
-        print(f"❌ Release 생성 실패: {e.code} {e.read().decode('utf-8', 'ignore')}")
-        return False
+        body = e.read().decode("utf-8", "ignore")
+        if e.code == 422 and "already_exists" in body:
+            # 이전 실행이 Release는 만들었지만 그 뒤(커밋 push 등)에서 끊긴 경우 —
+            # 같은 태그로 재시도된 것이니 기존 Release를 그대로 이어서 사용한다.
+            print(f"   ℹ️ Release {tag} 이미 존재 — 기존 Release에 이어서 업로드")
+            try:
+                release = _github_api_request(
+                    f"{GITHUB_API}/repos/{owner}/{repo}/releases/tags/{tag}",
+                    github_token,
+                )
+            except urllib.error.HTTPError as e2:
+                print(f"❌ 기존 Release 조회 실패: {e2.code} {e2.read().decode('utf-8', 'ignore')}")
+                return False
+        else:
+            print(f"❌ Release 생성 실패: {e.code} {body}")
+            return False
 
     upload_url = release["upload_url"].split("{")[0]
+    existing_assets = {a["name"]: a["id"] for a in release.get("assets", [])}
     for fname in assets:
+        if fname in existing_assets:
+            try:
+                _github_api_request(
+                    f"{GITHUB_API}/repos/{owner}/{repo}/releases/assets/{existing_assets[fname]}",
+                    github_token, method="DELETE",
+                )
+                print(f"   🗑️  기존 {fname} 삭제 (재업로드 위해)")
+            except urllib.error.HTTPError as e:
+                print(f"❌ 기존 {fname} 삭제 실패: {e.code} {e.read().decode('utf-8', 'ignore')}")
+                return False
         with open(os.path.join(base_dir, fname), "rb") as f:
             file_data = f.read()
         try:
