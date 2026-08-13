@@ -1,9 +1,15 @@
 import os
 import re
 import sys
+import json
 import shutil
 import subprocess
 import glob
+import urllib.request
+import urllib.error
+from urllib.parse import quote
+
+GITHUB_API = "https://api.github.com"
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -61,6 +67,16 @@ def _find_partitions_bin(base_dir, output_part_bin):
     return max(candidates, key=os.path.getmtime) if candidates else None
 
 
+def _find_sketch_file(base_dir):
+    """Arduino 규칙(폴더명 == 스케치명)으로 .ino 파일을 자동 감지. 없으면 None."""
+    dir_name = os.path.basename(base_dir)
+    sketch_file = os.path.join(base_dir, dir_name + ".ino")
+    if os.path.exists(sketch_file):
+        return sketch_file
+    ino_files = [f for f in os.listdir(base_dir) if f.endswith(".ino")]
+    return os.path.join(base_dir, ino_files[0]) if ino_files else None
+
+
 def _sign(input_file, secret, output_file):
     sign_script = os.path.join(_CORE_DIR, "sign_firmware.py")
     result = subprocess.run(
@@ -98,12 +114,127 @@ def _git_push(base_dir, sketch_file, version, partition_version=None):
         print(f"❌ Git 오류: {e}")
 
 
+# ============================================================
+# GitHub Releases 기반 배포 (secrets.py 에 GITHUB_TOKEN 이 있을 때만)
+#   — raw 파일을 main 브랜치에 커밋하는 대신, 태그별 Release 에
+#     바이너리를 asset 으로 올린다. 기기는 항상
+#     .../releases/latest/download/<file> 을 바라보므로
+#     브랜치 전략(main 외 브랜치 사용)과 OTA 배포가 분리된다.
+# ============================================================
+
+def _get_remote_repo(base_dir):
+    result = subprocess.run(
+        ["git", "-C", base_dir, "remote", "get-url", "origin"],
+        capture_output=True, text=True, check=True
+    )
+    url = result.stdout.strip()
+    m = re.search(r'github\.com[:/]([^/]+)/([^/.]+?)(\.git)?$', url)
+    if not m:
+        raise ValueError(f"origin이 GitHub 저장소가 아닙니다: {url}")
+    return m.group(1), m.group(2)
+
+
+def _get_current_branch(base_dir):
+    result = subprocess.run(
+        ["git", "-C", base_dir, "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
+def _github_api_request(url, token, method="GET", data=None, content_type="application/json"):
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "SecureOTA-deploy",
+    }
+    if data is not None:
+        headers["Content-Type"] = content_type
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req) as resp:
+        body = resp.read()
+        return json.loads(body) if body else None
+
+
+def _commit_and_push_sketch(base_dir, sketch_file, version, partition_version):
+    print("\n📝 소스 변경사항(.ino 버전 증가) 커밋 중...")
+    rel_sketch = os.path.relpath(sketch_file, base_dir).replace("\\", "/")
+    commit_msg = f"Firmware v{version}"
+    if partition_version is not None:
+        commit_msg += f" + Partition v{partition_version}"
+    try:
+        subprocess.run(["git", "-C", base_dir, "add", rel_sketch], check=True)
+        if subprocess.run(["git", "-C", base_dir, "diff", "--cached", "--quiet"]).returncode == 0:
+            print("   변경사항 없음 — 커밋 스킵")
+            return
+        subprocess.run(["git", "-C", base_dir, "commit", "-m", commit_msg], check=True)
+        subprocess.run(["git", "-C", base_dir, "push"], check=True)
+        print("✅ 소스 커밋 & 푸시 완료")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Git 오류: {e}")
+        raise
+
+
+def _publish_release(base_dir, version, partition_version, github_token):
+    print("\n☁️ GitHub Release 로 업로드 중...")
+    owner, repo = _get_remote_repo(base_dir)
+    branch = _get_current_branch(base_dir)
+    tag = f"v{version}"
+
+    with open(os.path.join(base_dir, "version.txt"), "w", encoding="utf-8") as f:
+        f.write(str(version))
+    assets = ["update.bin", "update.sig", "version.txt"]
+    name = f"Firmware v{version}"
+
+    if partition_version is not None:
+        with open(os.path.join(base_dir, "partition_version.txt"), "w", encoding="utf-8") as f:
+            f.write(str(partition_version))
+        assets += ["partitions.bin", "partitions.sig", "partition_version.txt"]
+        name += f" + Partition v{partition_version}"
+
+    try:
+        release = _github_api_request(
+            f"{GITHUB_API}/repos/{owner}/{repo}/releases",
+            github_token, method="POST",
+            data=json.dumps({
+                "tag_name": tag,
+                "target_commitish": branch,
+                "name": name,
+                "body": name,
+                "draft": False,
+                "prerelease": False,
+            }).encode("utf-8"),
+        )
+    except urllib.error.HTTPError as e:
+        print(f"❌ Release 생성 실패: {e.code} {e.read().decode('utf-8', 'ignore')}")
+        return False
+
+    upload_url = release["upload_url"].split("{")[0]
+    for fname in assets:
+        with open(os.path.join(base_dir, fname), "rb") as f:
+            file_data = f.read()
+        try:
+            _github_api_request(
+                f"{upload_url}?name={quote(fname)}",
+                github_token, method="POST",
+                data=file_data, content_type="application/octet-stream",
+            )
+            print(f"   ⬆️  {fname} ({len(file_data):,} bytes) 업로드 완료")
+        except urllib.error.HTTPError as e:
+            print(f"❌ {fname} 업로드 실패: {e.code} {e.read().decode('utf-8', 'ignore')}")
+            return False
+
+    print(f"✅ GitHub Release {tag} 업로드 완료! ({owner}/{repo}, branch={branch})")
+    return True
+
+
 def run_deploy(base_dir):
     # 비밀키 로드 (장치 repo 의 scripts/secrets.py)
     device_scripts = os.path.join(base_dir, "scripts")
     sys.path.insert(0, device_scripts)
     try:
-        from secrets import HMAC_SECRET
+        import secrets as _device_secrets
     except ImportError:
         print("❌ 오류: scripts/secrets.py 파일이 없습니다.")
         print("   secrets.py.example 을 secrets.py 로 복사한 뒤 비밀키를 설정하세요.")
@@ -111,16 +242,15 @@ def run_deploy(base_dir):
     finally:
         sys.path.pop(0)
 
-    if HMAC_SECRET == "CHANGE_THIS_TO_YOUR_SECRET":
+    HMAC_SECRET = getattr(_device_secrets, "HMAC_SECRET", None)
+    GITHUB_TOKEN = getattr(_device_secrets, "GITHUB_TOKEN", None) or None
+
+    if not HMAC_SECRET or HMAC_SECRET == "CHANGE_THIS_TO_YOUR_SECRET":
         print("❌ 오류: scripts/secrets.py 의 HMAC_SECRET 을 설정하세요.")
         return
 
     # 스케치 파일 자동 감지 (Arduino 규칙: 폴더명 == 스케치명)
-    dir_name    = os.path.basename(base_dir)
-    sketch_file = os.path.join(base_dir, dir_name + ".ino")
-    if not os.path.exists(sketch_file):
-        ino_files   = [f for f in os.listdir(base_dir) if f.endswith(".ino")]
-        sketch_file = os.path.join(base_dir, ino_files[0]) if ino_files else None
+    sketch_file = _find_sketch_file(base_dir)
     if not sketch_file:
         print("❌ 오류: .ino 파일을 찾을 수 없습니다.")
         return
@@ -200,9 +330,18 @@ def run_deploy(base_dir):
                         new_partition_ver = _increment_version(sketch_file, PART_MACRO, cur_pver)
                         print(f"🔼 파티션 버전: v{cur_pver} → v{new_partition_ver}")
 
-    _git_push(base_dir, sketch_file, new_ver, new_partition_ver)
+    if GITHUB_TOKEN:
+        _commit_and_push_sketch(base_dir, sketch_file, new_ver, new_partition_ver)
+        if not _publish_release(base_dir, new_ver, new_partition_ver, GITHUB_TOKEN):
+            return
+    else:
+        _git_push(base_dir, sketch_file, new_ver, new_partition_ver)
+
     print(f"\n🎉 배포 완료! 펌웨어 v{new_ver}", end="")
     if new_partition_ver is not None:
         print(f" + 파티션 v{new_partition_ver}", end="")
-    print(" 이(가) GitHub 에 업로드되었습니다.")
+    if GITHUB_TOKEN:
+        print(" 이(가) GitHub Release 로 업로드되었습니다.")
+    else:
+        print(" 이(가) GitHub 에 업로드되었습니다.")
     print("   서버에서 device_state = \"github\" 를 전송하면 기기가 업데이트됩니다.")
