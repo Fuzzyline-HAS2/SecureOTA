@@ -86,6 +86,26 @@ def _sign(input_file, secret, output_file):
     return result.returncode == 0, result.stderr
 
 
+def _push_with_retry(base_dir, max_attempts=5):
+    """push 시도 → 원격이 앞서가 거부되면(다른 배포/수동 push와 경합) 최신으로
+    rebase 후 재시도한다. 이 스크립트가 만드는 커밋은 버전 macro/바이너리 등
+    자기 device 폴더 파일만 바꾸므로 다른 변경과 충돌할 가능성이 낮아 rebase로
+    안전하게 재시도할 수 있다. 진짜 충돌(같은 device를 동시에 두 곳에서 배포하는
+    경우 등)이면 rebase가 실패하므로 그 자리에서 중단하고 사람이 확인하게 한다."""
+    branch = _get_current_branch(base_dir)
+    for attempt in range(1, max_attempts + 1):
+        if subprocess.run(["git", "-C", base_dir, "push"]).returncode == 0:
+            return
+        if attempt == max_attempts:
+            break
+        print(f"   ⚠️ push 거부됨(원격이 앞서감) — 최신으로 재동기화 후 재시도 ({attempt}/{max_attempts})")
+        subprocess.run(["git", "-C", base_dir, "fetch", "origin", branch], check=True)
+        if subprocess.run(["git", "-C", base_dir, "rebase", f"origin/{branch}"]).returncode != 0:
+            subprocess.run(["git", "-C", base_dir, "rebase", "--abort"])
+            raise RuntimeError("원격 변경과 충돌해 자동 rebase 실패 — 수동 확인이 필요합니다.")
+    raise RuntimeError(f"{max_attempts}회 재시도했지만 push에 실패했습니다.")
+
+
 def _git_push(base_dir, sketch_file, version, partition_version=None):
     print("\n☁️ GitHub 에 업로드 중...")
     try:
@@ -108,9 +128,9 @@ def _git_push(base_dir, sketch_file, version, partition_version=None):
 
         subprocess.run(["git", "-C", base_dir, "add"] + files_to_add, check=True)
         subprocess.run(["git", "-C", base_dir, "commit", "-m", commit_msg], check=True)
-        subprocess.run(["git", "-C", base_dir, "push"], check=True)
+        _push_with_retry(base_dir)
         print("✅ GitHub 업로드 완료!")
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, RuntimeError) as e:
         print(f"❌ Git 오류: {e}")
 
 
@@ -176,9 +196,9 @@ def _commit_and_push_sketch(base_dir, sketch_file, version, partition_version):
             print("   변경사항 없음 — 커밋 스킵")
             return
         subprocess.run(["git", "-C", base_dir, "commit", "-m", commit_msg], check=True)
-        subprocess.run(["git", "-C", base_dir, "push"], check=True)
+        _push_with_retry(base_dir)
         print("✅ 소스 커밋 & 푸시 완료")
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, RuntimeError) as e:
         print(f"❌ Git 오류: {e}")
         raise
 
