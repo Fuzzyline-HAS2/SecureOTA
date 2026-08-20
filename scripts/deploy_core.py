@@ -183,6 +183,36 @@ def _commit_and_push_sketch(base_dir, sketch_file, version, partition_version):
         raise
 
 
+def _generate_changelog(base_dir, version, max_entries=20):
+    """직전 배포(Firmware v{version-1} 커밋) 이후 이 기기 폴더(base_dir)에 걸린
+    커밋들의 제목 줄만 간단히 모아 변경 로그를 만든다. --oneline은 커밋 메시지의
+    첫 줄(제목)만 뽑아주므로 자동으로 "간략한" 목록이 된다. 직전 버전 커밋을
+    못 찾으면(첫 배포 등) 최근 max_entries개까지만 보여준다."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", base_dir, "log", "--oneline", "--no-decorate", "--", "."],
+            capture_output=True, text=True, check=True,
+            encoding="utf-8",  # Windows 기본 로케일(cp949)로 디코드하면 한글 커밋 메시지에서 깨짐
+        )
+    except subprocess.CalledProcessError:
+        return ""
+
+    prev_bump = re.compile(rf'^[0-9a-f]+\s+Firmware v{version - 1}(\s|\+|$)')
+    this_bump = re.compile(rf'^[0-9a-f]+\s+Firmware v{version}(\s|\+|$)')
+
+    entries = []
+    for line in result.stdout.strip().splitlines():
+        if prev_bump.match(line):
+            break  # 직전 배포 지점 — 그 이전 커밋은 이미 지난 릴리즈에서 다뤄짐
+        if this_bump.match(line):
+            continue  # 이번 배포 자체의 버전 범프 커밋은 "변경 내용"이 아니라서 제외
+        entries.append(re.sub(r'^[0-9a-f]+\s+', '', line))
+        if len(entries) >= max_entries:
+            break
+
+    return "\n".join(f"- {e}" for e in entries)
+
+
 def _publish_release(base_dir, version, partition_version, github_token):
     print("\n☁️ GitHub Release 로 업로드 중...")
     owner, repo = _get_remote_repo(base_dir)
@@ -200,35 +230,47 @@ def _publish_release(base_dir, version, partition_version, github_token):
         assets += ["partitions.bin", "partitions.sig", "partition_version.txt"]
         name += f" + Partition v{partition_version}"
 
+    changelog = _generate_changelog(base_dir, version)
+    body = f"{name}\n\n{changelog}" if changelog else name
+
+    release_payload = json.dumps({
+        "tag_name": tag,
+        "target_commitish": branch,
+        "name": name,
+        "body": body,
+        "draft": False,
+        "prerelease": False,
+    }).encode("utf-8")
+
     try:
         release = _github_api_request(
             f"{GITHUB_API}/repos/{owner}/{repo}/releases",
             github_token, method="POST",
-            data=json.dumps({
-                "tag_name": tag,
-                "target_commitish": branch,
-                "name": name,
-                "body": name,
-                "draft": False,
-                "prerelease": False,
-            }).encode("utf-8"),
+            data=release_payload,
         )
     except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "ignore")
-        if e.code == 422 and "already_exists" in body:
-            # 이전 실행이 Release는 만들었지만 그 뒤(커밋 push 등)에서 끊긴 경우 —
-            # 같은 태그로 재시도된 것이니 기존 Release를 그대로 이어서 사용한다.
-            print(f"   ℹ️ Release {tag} 이미 존재 — 기존 Release에 이어서 업로드")
+        resp_body = e.read().decode("utf-8", "ignore")
+        if e.code == 422 and "already_exists" in resp_body:
+            # 기기 폴더명 고정 태그를 계속 재사용하는 게 정상 흐름이라(첫 배포 이후엔
+            # 항상 이 분기를 탐) 매 배포마다 최신 버전/변경 로그로 제목·본문을 갱신한다.
+            # (예전엔 기존 Release를 GET만 하고 안 바꿔서, 최초 배포 이후 제목/설명이
+            #  영원히 그대로 남아있는 문제가 있었음)
+            print(f"   ℹ️ Release {tag} 이미 존재 — 최신 버전/변경 로그로 갱신")
             try:
-                release = _github_api_request(
+                existing = _github_api_request(
                     f"{GITHUB_API}/repos/{owner}/{repo}/releases/tags/{tag}",
                     github_token,
                 )
+                release = _github_api_request(
+                    f"{GITHUB_API}/repos/{owner}/{repo}/releases/{existing['id']}",
+                    github_token, method="PATCH",
+                    data=release_payload,
+                )
             except urllib.error.HTTPError as e2:
-                print(f"❌ 기존 Release 조회 실패: {e2.code} {e2.read().decode('utf-8', 'ignore')}")
+                print(f"❌ 기존 Release 갱신 실패: {e2.code} {e2.read().decode('utf-8', 'ignore')}")
                 return False
         else:
-            print(f"❌ Release 생성 실패: {e.code} {body}")
+            print(f"❌ Release 생성 실패: {e.code} {resp_body}")
             return False
 
     upload_url = release["upload_url"].split("{")[0]
