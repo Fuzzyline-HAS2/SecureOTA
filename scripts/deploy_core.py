@@ -100,8 +100,28 @@ def _push_with_retry(base_dir, max_attempts=5):
             break
         print(f"   ⚠️ push 거부됨(원격이 앞서감) — 최신으로 재동기화 후 재시도 ({attempt}/{max_attempts})")
         subprocess.run(["git", "-C", base_dir, "fetch", "origin", branch], check=True)
-        if subprocess.run(["git", "-C", base_dir, "rebase", f"origin/{branch}"]).returncode != 0:
+
+        # update.bin/update.sig처럼 git엔 추적되지만 이 커밋에는 안 실은 파일이
+        # (Release 에셋으로만 올라가고 git 커밋 대상이 아님) 빌드 단계에서 로컬에
+        # 수정된 채로 남아있으면, rebase가 "unstaged changes"로 거부된다.
+        # 커밋하지 않고(레거시처럼 바이너리를 git 히스토리에 남기지 않도록) 잠깐
+        # stash로 치웠다가 rebase 직후 그대로 복원한다.
+        stash_needed = subprocess.run(["git", "-C", base_dir, "diff", "--quiet"]).returncode != 0
+        if stash_needed:
+            subprocess.run(
+                ["git", "-C", base_dir, "stash", "push", "-u", "-m", "push-retry: build artifacts"],
+                check=True,
+            )
+
+        rebase_ok = subprocess.run(["git", "-C", base_dir, "rebase", f"origin/{branch}"]).returncode == 0
+        if not rebase_ok:
             subprocess.run(["git", "-C", base_dir, "rebase", "--abort"])
+
+        if stash_needed:
+            if subprocess.run(["git", "-C", base_dir, "stash", "pop"]).returncode != 0:
+                raise RuntimeError("rebase 후 build artifacts(stash) 복원 실패 — 수동 확인이 필요합니다.")
+
+        if not rebase_ok:
             raise RuntimeError("원격 변경과 충돌해 자동 rebase 실패 — 수동 확인이 필요합니다.")
     raise RuntimeError(f"{max_attempts}회 재시도했지만 push에 실패했습니다.")
 
